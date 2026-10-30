@@ -2,14 +2,15 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "main", "master" ] # Hỗ trợ cả nhánh main và master
+    branches: [ "main", "master" ]
     paths:
       - 'android/**'
-  workflow_dispatch: # Cho phép bấm nút "Run workflow" thủ công trên web
+  workflow_dispatch:
 
 jobs:
   build-android:
     runs-on: ubuntu-latest
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -20,10 +21,17 @@ jobs:
         distribution: 'temurin'
         java-version: '17'
 
+    - name: Install Gradle and Generate Wrapper
+      run: |
+        cd android
+        # Cài đặt gradle trên máy chủ ảo để tạo file gradlew tự động
+        sudo apt-get update && sudo apt-get install -y gradle
+        gradle wrapper
+        chmod +x gradlew
+
     - name: Build APK with Gradle
       run: |
         cd android
-        chmod +x gradlew
         ./gradlew assembleDebug
 
     - name: Upload APK Artifact
