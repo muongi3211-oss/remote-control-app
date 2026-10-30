@@ -21,18 +21,18 @@ jobs:
         distribution: 'temurin'
         java-version: '17'
 
-    - name: Install Gradle and Generate Wrapper
+    - name: Download and Setup Gradle 8.5
       run: |
         cd android
-        sudo apt-get update && sudo apt-get install -y gradle
-        # Ép buộc tạo wrapper với Gradle 8.5 để tương thích hoàn toàn với Java 17
-        gradle wrapper --gradle-version 8.5
-        chmod +x gradlew
+        # Tải trực tiếp Gradle 8.5 mới nhất, không dùng bản apt-get cũ
+        wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
+        unzip -q gradle-8.5-bin.zip
+        echo "$PWD/gradle-8.5/bin" >> $GITHUB_PATH
 
     - name: Build APK with Gradle
       run: |
         cd android
-        ./gradlew assembleDebug
+        gradle assembleDebug
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
