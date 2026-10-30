@@ -2,9 +2,10 @@ name: Build Windows Exe
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ] # Hỗ trợ cả nhánh main và master
     paths:
       - 'server/**'
+  workflow_dispatch: # Cho phép hiển thị nút "Run workflow" thủ công trên web
 
 jobs:
   build-windows:
