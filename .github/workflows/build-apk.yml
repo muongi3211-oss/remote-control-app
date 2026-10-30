@@ -2,14 +2,14 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ] # Hỗ trợ cả nhánh main và master
     paths:
       - 'android/**'
+  workflow_dispatch: # Cho phép bấm nút "Run workflow" thủ công trên web
 
 jobs:
   build-android:
     runs-on: ubuntu-latest
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
