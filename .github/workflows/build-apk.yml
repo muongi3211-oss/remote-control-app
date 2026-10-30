@@ -24,9 +24,9 @@ jobs:
     - name: Install Gradle and Generate Wrapper
       run: |
         cd android
-        # Cài đặt gradle trên máy chủ ảo để tạo file gradlew tự động
         sudo apt-get update && sudo apt-get install -y gradle
-        gradle wrapper
+        # Ép buộc tạo wrapper với Gradle 8.5 để tương thích hoàn toàn với Java 17
+        gradle wrapper --gradle-version 8.5
         chmod +x gradlew
 
     - name: Build APK with Gradle
