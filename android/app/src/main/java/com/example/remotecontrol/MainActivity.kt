@@ -34,7 +34,7 @@ class MainActivity : AppCompatActivity() {
         hiddenEditText = findViewById(R.id.hiddenEditText)
 
         // Địa chỉ IP của máy tính trong mạng LAN (Thay bằng IP thực tế của PC bạn)
-        val serverIp = "192.168.1.150" 
+        val serverIp = "10.192.207.30" 
         val port = 5000
 
         connectToPcServer(serverIp, port)
