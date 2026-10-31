@@ -32,7 +32,7 @@ def receive_commands(conn):
                             pyautogui.click(x, y)
                         elif action == "RIGHT_CLICK":
                             pyautogui.moveTo(x, y)
-                            pyautogui.rightClick() # Xử lý mở menu chuột phải
+                            pyautogui.rightClick()
                 elif action == "KEY":
                     pyautogui.write(value, interval=0.02)
                 elif action == "SPECIAL":
@@ -44,13 +44,14 @@ def receive_commands(conn):
 def handle_client(conn, addr):
     print(f"Điện thoại đã kết nối: {addr}")
     
-    # Khởi chạy luồng nhận lệnh điều khiển độc lập
     cmd_thread = threading.Thread(target=receive_commands, args=(conn,), daemon=True)
     cmd_thread.start()
 
-    # Luồng chính stream màn hình liên tục
+    # Tỷ lệ scale hình ảnh (0.8 giúp cực kỳ sắc nét nhưng vẫn mượt)
+    scale_factor = 0.8
+
     with mss.mss() as sct:
-        monitor = sct.monitors[1] # Màn hình chính
+        monitor = sct.monitors[1]
         
         while True:
             try:
@@ -59,15 +60,24 @@ def handle_client(conn, addr):
                 frame = np.array(img)
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
                 
-                # 2. Thu nhỏ 50% để tối ưu băng thông
-                frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+                # 2. Lấy vị trí chuột thực tế trên PC và vẽ con trỏ lên frame
+                mx, my = pyautogui.position()
+                mx_scaled = int(mx * scale_factor)
+                my_scaled = int(my * scale_factor)
                 
-                # 3. Nén sang định dạng JPEG chất lượng 60%
-                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 60]
+                # Vẽ con trỏ chuột (chấm tròn đỏ viền trắng nổi bật)
+                cv2.circle(frame, (mx_scaled, my_scaled), 10, (255, 255, 255), -1) # Viền trắng
+                cv2.circle(frame, (mx_scaled, my_scaled), 7, (0, 0, 255), -1)    # Tâm đỏ
+                
+                # 3. Resize với tỷ lệ 0.8 để nét hơn
+                frame = cv2.resize(frame, (0, 0), fx=scale_factor, fy=scale_factor)
+                
+                # 4. Nén JPEG chất lượng cao (85%) để sắc nét chữ và icon
+                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
                 _, encimg = cv2.imencode('.jpg', frame, encode_param)
                 img_bytes = encimg.tobytes()
                 
-                # 4. Gửi kích thước và dữ liệu qua mạng
+                # 5. Gửi dữ liệu qua mạng
                 conn.sendall(struct.pack(">L", len(img_bytes)) + img_bytes)
                 
             except Exception as e:
