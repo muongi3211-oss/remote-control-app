@@ -22,7 +22,7 @@ def receive_commands(conn):
             if len(parts) >= 2:
                 action, value = parts[0], parts[1]
                 
-                if action == "MOVE" or action == "CLICK":
+                if action in ["MOVE", "CLICK", "RIGHT_CLICK"]:
                     coords = value.split(':')
                     if len(coords) == 2:
                         x, y = float(coords[0]), float(coords[1])
@@ -30,6 +30,9 @@ def receive_commands(conn):
                             pyautogui.moveTo(x, y)
                         elif action == "CLICK":
                             pyautogui.click(x, y)
+                        elif action == "RIGHT_CLICK":
+                            pyautogui.moveTo(x, y)
+                            pyautogui.rightClick() # Xử lý mở menu chuột phải
                 elif action == "KEY":
                     pyautogui.write(value, interval=0.02)
                 elif action == "SPECIAL":
