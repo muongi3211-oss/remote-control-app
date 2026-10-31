@@ -7,6 +7,7 @@ import android.text.TextWatcher
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.WindowManager
 import android.widget.EditText
 import android.widget.ImageView
@@ -23,17 +24,21 @@ class MainActivity : AppCompatActivity() {
     
     private var socket: Socket? = null
     private var outputStream: OutputStream? = null
+    
     private lateinit var gestureDetector: GestureDetector
+    private lateinit var scaleGestureDetector: ScaleGestureDetector
+    
     private var isLongPressed = false
+    private var scaleFactor = 1.0f
 
-    // Độ phân giải gốc PC (khớp với tỷ lệ scale 0.5 bên Python Server)
+    // Độ phân giải gốc PC (khớp với tỷ lệ scale 0.8 bên Python Server)
     private val pcScreenWidth = 1920f
     private val pcScreenHeight = 1080f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Ẩn thanh thông báo (Status Bar) để đạt hiển thị Full màn hình tuyệt đối
+        // Ẩn thanh thông báo (Status Bar) để hiển thị Full màn hình tuyệt đối
         window.setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN
@@ -59,7 +64,7 @@ class MainActivity : AppCompatActivity() {
                 val input = DataInputStream(socket!!.getInputStream())
 
                 runOnUiThread {
-                    setupTouchListener()
+                    setupTouchAndGestureListeners()
                     setupKeyboardListener()
                 }
 
@@ -79,8 +84,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupTouchListener() {
-        // Khởi tạo GestureDetector để bắt sự kiện chạm giữ (Long Press) mở chuột phải
+    private fun setupTouchAndGestureListeners() {
+        // 1. Bộ thu phóng bằng 2 ngón tay (Pinch-to-zoom)
+        scaleGestureDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                scaleFactor *= detector.scaleFactor
+                scaleFactor = Math.max(1.0f, Math.min(scaleFactor, 5.0f)) // Giới hạn zoom từ 1x đến 5x
+                
+                imageView.scaleX = scaleFactor
+                imageView.scaleY = scaleFactor
+                return true
+            }
+        })
+
+        // 2. Bộ nhận diện chạm giữ (Long Press) để mở menu chuột phải
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onLongPress(e: MotionEvent) {
                 isLongPressed = true
@@ -88,31 +105,35 @@ class MainActivity : AppCompatActivity() {
                 val viewHeight = imageView.height.toFloat()
                 val realX = (e.x / viewWidth) * pcScreenWidth
                 val realY = (e.y / viewHeight) * pcScreenHeight
-                // Gửi lệnh chuột phải về server
                 sendDataAsync("RIGHT_CLICK:${realX.toInt()}:${realY.toInt()}\n")
             }
         })
 
+        // Gộp chung các sự kiện cảm ứng vào ImageView
         imageView.setOnTouchListener { v, event ->
+            scaleGestureDetector.onTouchEvent(event)
             gestureDetector.onTouchEvent(event)
+
             val viewWidth = v.width.toFloat()
             val viewHeight = v.height.toFloat()
 
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    isLongPressed = false
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val realX = (event.x / viewWidth) * pcScreenWidth
-                    val realY = (event.y / viewHeight) * pcScreenHeight
-                    sendDataAsync("MOVE:${realX.toInt()}:${realY.toInt()}\n")
-                }
-                MotionEvent.ACTION_UP -> {
-                    // Nếu không phải là thao tác chạm giữ, thả tay ra tính là click chuột trái
-                    if (!isLongPressed) {
+            // Chỉ cho phép điều khiển chuột khi không ở chế độ phóng to (scaleFactor == 1.0f)
+            if (scaleFactor == 1.0f) {
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        isLongPressed = false
+                    }
+                    MotionEvent.ACTION_MOVE -> {
                         val realX = (event.x / viewWidth) * pcScreenWidth
                         val realY = (event.y / viewHeight) * pcScreenHeight
-                        sendDataAsync("CLICK:${realX.toInt()}:${realY.toInt()}\n")
+                        sendDataAsync("MOVE:${realX.toInt()}:${realY.toInt()}\n")
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (!isLongPressed) {
+                            val realX = (event.x / viewWidth) * pcScreenWidth
+                            val realY = (event.y / viewHeight) * pcScreenHeight
+                            sendDataAsync("CLICK:${realX.toInt()}:${realY.toInt()}\n")
+                        }
                     }
                 }
             }
