@@ -4,8 +4,10 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.WindowManager
 import android.widget.EditText
 import android.widget.ImageView
 import androidx.appcompat.app.AppCompatActivity
@@ -21,6 +23,8 @@ class MainActivity : AppCompatActivity() {
     
     private var socket: Socket? = null
     private var outputStream: OutputStream? = null
+    private lateinit var gestureDetector: GestureDetector
+    private var isLongPressed = false
 
     // Độ phân giải gốc PC (khớp với tỷ lệ scale 0.5 bên Python Server)
     private val pcScreenWidth = 1920f
@@ -28,12 +32,19 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Ẩn thanh thông báo (Status Bar) để đạt hiển thị Full màn hình tuyệt đối
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_FULLSCREEN,
+            WindowManager.LayoutParams.FLAG_FULLSCREEN
+        )
+
         setContentView(R.layout.activity_main)
 
         imageView = findViewById(R.id.screenImageView)
         hiddenEditText = findViewById(R.id.hiddenEditText)
 
-        // Địa chỉ IP của máy tính trong mạng LAN (Thay bằng IP thực tế của PC bạn)
+        // Địa chỉ IP cố định của máy tính trong mạng LAN
         val serverIp = "10.192.207.30" 
         val port = 5000
 
@@ -69,20 +80,40 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupTouchListener() {
+        // Khởi tạo GestureDetector để bắt sự kiện chạm giữ (Long Press) mở chuột phải
+        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onLongPress(e: MotionEvent) {
+                isLongPressed = true
+                val viewWidth = imageView.width.toFloat()
+                val viewHeight = imageView.height.toFloat()
+                val realX = (e.x / viewWidth) * pcScreenWidth
+                val realY = (e.y / viewHeight) * pcScreenHeight
+                // Gửi lệnh chuột phải về server
+                sendDataAsync("RIGHT_CLICK:${realX.toInt()}:${realY.toInt()}\n")
+            }
+        })
+
         imageView.setOnTouchListener { v, event ->
+            gestureDetector.onTouchEvent(event)
             val viewWidth = v.width.toFloat()
             val viewHeight = v.height.toFloat()
 
             when (event.action) {
-                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                MotionEvent.ACTION_DOWN -> {
+                    isLongPressed = false
+                }
+                MotionEvent.ACTION_MOVE -> {
                     val realX = (event.x / viewWidth) * pcScreenWidth
                     val realY = (event.y / viewHeight) * pcScreenHeight
                     sendDataAsync("MOVE:${realX.toInt()}:${realY.toInt()}\n")
                 }
                 MotionEvent.ACTION_UP -> {
-                    val realX = (event.x / viewWidth) * pcScreenWidth
-                    val realY = (event.y / viewHeight) * pcScreenHeight
-                    sendDataAsync("CLICK:${realX.toInt()}:${realY.toInt()}\n")
+                    // Nếu không phải là thao tác chạm giữ, thả tay ra tính là click chuột trái
+                    if (!isLongPressed) {
+                        val realX = (event.x / viewWidth) * pcScreenWidth
+                        val realY = (event.y / viewHeight) * pcScreenHeight
+                        sendDataAsync("CLICK:${realX.toInt()}:${realY.toInt()}\n")
+                    }
                 }
             }
             true
