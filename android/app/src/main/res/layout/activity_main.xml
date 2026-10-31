@@ -4,14 +4,14 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- Hiển thị khung hình máy tính (Giữ đúng tỷ lệ, căn giữa) -->
+    <!-- Hiển thị khung hình máy tính full màn hình tuyệt đối -->
     <ImageView
         android:id="@+id/screenImageView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:scaleType="fitCenter" />
+        android:scaleType="fitXY" />
 
-    <!-- Ô nhập liệu ẩn để nhận phím gõ và sự kiện bàn phím ảo -->
+    <!-- Ô nhập liệu ẩn để nhận phím gõ từ bàn phím ảo -->
     <EditText
         android:id="@+id/hiddenEditText"
         android:layout_width="1dp"
