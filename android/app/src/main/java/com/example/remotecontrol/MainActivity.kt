@@ -15,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity
 import java.io.DataInputStream
 import java.io.OutputStream
 import java.net.Socket
+import java.util.concurrent.LinkedBlockingQueue
 import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
@@ -31,14 +32,16 @@ class MainActivity : AppCompatActivity() {
     private var isLongPressed = false
     private var scaleFactor = 1.0f
 
-    // Độ phân giải gốc PC (khớp với tỷ lệ scale 0.8 bên Python Server)
+    // Hàng đợi truyền lệnh mạng độc lập, chống nghẽn luồng
+    private val commandQueue = LinkedBlockingQueue<String>()
+    private var isSenderRunning = false
+
     private val pcScreenWidth = 1920f
     private val pcScreenHeight = 1080f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Ẩn thanh thông báo (Status Bar) để hiển thị Full màn hình tuyệt đối
         window.setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN
@@ -49,11 +52,35 @@ class MainActivity : AppCompatActivity() {
         imageView = findViewById(R.id.screenImageView)
         hiddenEditText = findViewById(R.id.hiddenEditText)
 
-        // Địa chỉ IP cố định của máy tính trong mạng LAN
         val serverIp = "10.192.207.30" 
         val port = 5000
 
+        startCommandSenderThread()
         connectToPcServer(serverIp, port)
+    }
+
+    private fun startCommandSenderThread() {
+        if (isSenderRunning) return
+        isSenderRunning = true
+        thread {
+            try {
+                while (true) {
+                    val data = commandQueue.take()
+                    outputStream?.write(data.toByteArray())
+                    outputStream?.flush()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun sendDataAsync(data: String) {
+        if (data.startsWith("MOVE")) {
+            // Lọc bỏ các lệnh di chuyển cũ để luôn cập nhật vị trí mới nhất, tránh nghẽn mạng
+            commandQueue.clear()
+        }
+        commandQueue.offer(data)
     }
 
     private fun connectToPcServer(ip: String, port: Int) {
@@ -85,11 +112,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupTouchAndGestureListeners() {
-        // 1. Bộ thu phóng bằng 2 ngón tay (Pinch-to-zoom)
         scaleGestureDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
                 scaleFactor *= detector.scaleFactor
-                scaleFactor = Math.max(1.0f, Math.min(scaleFactor, 5.0f)) // Giới hạn zoom từ 1x đến 5x
+                scaleFactor = Math.max(1.0f, Math.min(scaleFactor, 5.0f))
                 
                 imageView.scaleX = scaleFactor
                 imageView.scaleY = scaleFactor
@@ -97,7 +123,6 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        // 2. Bộ nhận diện chạm giữ (Long Press) để mở menu chuột phải
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onLongPress(e: MotionEvent) {
                 isLongPressed = true
@@ -109,7 +134,6 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        // Gộp chung các sự kiện cảm ứng vào ImageView
         imageView.setOnTouchListener { v, event ->
             scaleGestureDetector.onTouchEvent(event)
             gestureDetector.onTouchEvent(event)
@@ -117,7 +141,6 @@ class MainActivity : AppCompatActivity() {
             val viewWidth = v.width.toFloat()
             val viewHeight = v.height.toFloat()
 
-            // Chỉ cho phép điều khiển chuột khi không ở chế độ phóng to (scaleFactor == 1.0f)
             if (scaleFactor == 1.0f) {
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
@@ -168,17 +191,6 @@ class MainActivity : AppCompatActivity() {
                 }
             } else {
                 false
-            }
-        }
-    }
-
-    private fun sendDataAsync(data: String) {
-        thread {
-            try {
-                outputStream?.write(data.toByteArray())
-                outputStream?.flush()
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
     }
