@@ -52,7 +52,7 @@ class MainActivity : AppCompatActivity() {
         imageView = findViewById(R.id.screenImageView)
         hiddenEditText = findViewById(R.id.hiddenEditText)
 
-        val serverIp = "10.192.207.30" 
+        val serverIp = "10.168.252.30" 
         val port = 5000
 
         startCommandSenderThread()
