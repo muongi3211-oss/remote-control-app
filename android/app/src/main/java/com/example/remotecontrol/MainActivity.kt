@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -32,12 +33,12 @@ class MainActivity : AppCompatActivity() {
     private var isLongPressed = false
     private var scaleFactor = 1.0f
 
-    // Hàng đợi truyền lệnh mạng độc lập, chống nghẽn luồng
     private val commandQueue = LinkedBlockingQueue<String>()
     private var isSenderRunning = false
 
     private val pcScreenWidth = 1920f
     private val pcScreenHeight = 1080f
+    private val TAG = "RemoteDebug"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,7 +53,7 @@ class MainActivity : AppCompatActivity() {
         imageView = findViewById(R.id.screenImageView)
         hiddenEditText = findViewById(R.id.hiddenEditText)
 
-        val serverIp = "10.168.152.30" 
+        val serverIp = "10.192.207.30" 
         val port = 5000
 
         startCommandSenderThread()
@@ -70,14 +71,13 @@ class MainActivity : AppCompatActivity() {
                     outputStream?.flush()
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(TAG, "Lỗi luồng gửi lệnh: ${e.message}")
             }
         }
     }
 
     private fun sendDataAsync(data: String) {
         if (data.startsWith("MOVE")) {
-            // Lọc bỏ các lệnh di chuyển cũ để luôn cập nhật vị trí mới nhất, tránh nghẽn mạng
             commandQueue.clear()
         }
         commandQueue.offer(data)
@@ -86,9 +86,11 @@ class MainActivity : AppCompatActivity() {
     private fun connectToPcServer(ip: String, port: Int) {
         thread {
             try {
+                Log.d(TAG, "Đang kết nối tới server $ip:$port...")
                 socket = Socket(ip, port)
                 outputStream = socket!!.getOutputStream()
                 val input = DataInputStream(socket!!.getInputStream())
+                Log.d(TAG, "Kết nối Socket thành công!")
 
                 runOnUiThread {
                     setupTouchAndGestureListeners()
@@ -96,17 +98,25 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 while (true) {
+                    // 1. Đọc chiều dài gói tin hình ảnh
                     val length = input.readInt()
+                    
+                    // 2. Đọc đúng số byte dữ liệu ảnh
                     val buffer = ByteArray(length)
                     input.readFully(buffer)
 
+                    // 3. Giải mã mảng byte thành Bitmap
                     val bitmap = BitmapFactory.decodeByteArray(buffer, 0, length)
-                    runOnUiThread {
-                        imageView.setImageBitmap(bitmap)
+                    if (bitmap != null) {
+                        runOnUiThread {
+                            imageView.setImageBitmap(bitmap)
+                        }
+                    } else {
+                        Log.e(TAG, "Lỗi: Không thể decode được Bitmap từ kích thước $length bytes!")
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(TAG, "Mất kết nối hoặc lỗi đọc stream: ${e.message}", e)
             }
         }
     }
@@ -166,7 +176,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupKeyboardListener() {
         hiddenEditText.addTextChangedListener(object : TextWatcher {
-            override fun afterTextChanged(s: Editable?) {
+            afterTextChanged(s: Editable?) {
                 if (!s.isNullOrEmpty()) {
                     sendDataAsync("KEY:$s\n")
                     s.clear()
