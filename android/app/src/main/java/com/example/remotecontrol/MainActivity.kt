@@ -174,9 +174,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupKeyboardListener() {
+        private fun setupKeyboardListener() {
         hiddenEditText.addTextChangedListener(object : TextWatcher {
-            afterTextChanged(s: Editable?) {
+            override fun afterTextChanged(s: Editable?) {
                 if (!s.isNullOrEmpty()) {
                     sendDataAsync("KEY:$s\n")
                     s.clear()
@@ -204,4 +204,3 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-}
