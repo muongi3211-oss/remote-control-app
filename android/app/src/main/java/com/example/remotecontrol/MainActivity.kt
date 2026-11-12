@@ -98,14 +98,10 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 while (true) {
-                    // 1. Đọc chiều dài gói tin hình ảnh
                     val length = input.readInt()
-                    
-                    // 2. Đọc đúng số byte dữ liệu ảnh
                     val buffer = ByteArray(length)
                     input.readFully(buffer)
 
-                    // 3. Giải mã mảng byte thành Bitmap
                     val bitmap = BitmapFactory.decodeByteArray(buffer, 0, length)
                     if (bitmap != null) {
                         runOnUiThread {
@@ -174,7 +170,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-        private fun setupKeyboardListener() {
+    private fun setupKeyboardListener() {
         hiddenEditText.addTextChangedListener(object : TextWatcher {
             override fun afterTextChanged(s: Editable?) {
                 if (!s.isNullOrEmpty()) {
@@ -204,3 +200,4 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+}
