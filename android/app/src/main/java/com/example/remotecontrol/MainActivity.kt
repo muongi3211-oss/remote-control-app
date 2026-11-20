@@ -1,203 +1,92 @@
-package com.example.remotecontrol
+package com.example.usbremote
 
-import android.graphics.BitmapFactory
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
-import android.util.Log
-import android.view.GestureDetector
-import android.view.KeyEvent
-import android.view.MotionEvent
-import android.view.ScaleGestureDetector
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.WindowManager
-import android.widget.EditText
-import android.widget.ImageView
 import androidx.appcompat.app.AppCompatActivity
-import java.io.DataInputStream
-import java.io.OutputStream
+import java.net.InetSocketAddress
 import java.net.Socket
-import java.util.concurrent.LinkedBlockingQueue
-import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
+    companion object {
+        private const val SERVER_HOST = "10.186.244.30" // Ví dụ: "127.0.0.1" hoặc "192.168.1.50"
+        private const val SERVER_PORT = 5555
+    }
 
-    private lateinit var imageView: ImageView
-    private lateinit var hiddenEditText: EditText
-    
-    private var socket: Socket? = null
-    private var outputStream: OutputStream? = null
-    
-    private lateinit var gestureDetector: GestureDetector
-    private lateinit var scaleGestureDetector: ScaleGestureDetector
-    
-    private var isLongPressed = false
-    private var scaleFactor = 1.0f
-
-    private val commandQueue = LinkedBlockingQueue<String>()
-    private var isSenderRunning = false
-
-    private val pcScreenWidth = 1920f
-    private val pcScreenHeight = 1080f
-    private val TAG = "RemoteDebug"
+    private var decoder: JpgStreamDecoder? = null
+    private var socketThread: Thread? = null
+    @Volatile
+    private var isStreaming = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_FULLSCREEN,
-            WindowManager.LayoutParams.FLAG_FULLSCREEN
-        )
-
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_main)
 
-        imageView = findViewById(R.id.screenImageView)
-        hiddenEditText = findViewById(R.id.hiddenEditText)
+        supportActionBar?.hide()
 
-        val serverIp = "10.186.244.30" 
-        val port = 5000
-
-        startCommandSenderThread()
-        connectToPcServer(serverIp, port)
-    }
-
-    private fun startCommandSenderThread() {
-        if (isSenderRunning) return
-        isSenderRunning = true
-        thread {
-            try {
-                while (true) {
-                    val data = commandQueue.take()
-                    outputStream?.write(data.toByteArray())
-                    outputStream?.flush()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Lỗi luồng gửi lệnh: ${e.message}")
+        val surfaceView = findViewById<SurfaceView>(R.id.surfaceView)
+        surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) {
+                startStreaming(holder.surface)
             }
-        }
-    }
 
-    private fun sendDataAsync(data: String) {
-        if (data.startsWith("MOVE")) {
-            commandQueue.clear()
-        }
-        commandQueue.offer(data)
-    }
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
 
-    private fun connectToPcServer(ip: String, port: Int) {
-        thread {
-            try {
-                Log.d(TAG, "Đang kết nối tới server $ip:$port...")
-                socket = Socket(ip, port)
-                outputStream = socket!!.getOutputStream()
-                val input = DataInputStream(socket!!.getInputStream())
-                Log.d(TAG, "Kết nối Socket thành công!")
-
-                runOnUiThread {
-                    setupTouchAndGestureListeners()
-                    setupKeyboardListener()
-                }
-
-                while (true) {
-                    val length = input.readInt()
-                    val buffer = ByteArray(length)
-                    input.readFully(buffer)
-
-                    val bitmap = BitmapFactory.decodeByteArray(buffer, 0, length)
-                    if (bitmap != null) {
-                        runOnUiThread {
-                            imageView.setImageBitmap(bitmap)
-                        }
-                    } else {
-                        Log.e(TAG, "Lỗi: Không thể decode được Bitmap từ kích thước $length bytes!")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Mất kết nối hoặc lỗi đọc stream: ${e.message}", e)
-            }
-        }
-    }
-
-    private fun setupTouchAndGestureListeners() {
-        scaleGestureDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-            override fun onScale(detector: ScaleGestureDetector): Boolean {
-                scaleFactor *= detector.scaleFactor
-                scaleFactor = Math.max(1.0f, Math.min(scaleFactor, 5.0f))
-                
-                imageView.scaleX = scaleFactor
-                imageView.scaleY = scaleFactor
-                return true
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                stopStreaming()
             }
         })
+    }
 
-        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onLongPress(e: MotionEvent) {
-                isLongPressed = true
-                val viewWidth = imageView.width.toFloat()
-                val viewHeight = imageView.height.toFloat()
-                val realX = (e.x / viewWidth) * pcScreenWidth
-                val realY = (e.y / viewHeight) * pcScreenHeight
-                sendDataAsync("RIGHT_CLICK:${realX.toInt()}:${realY.toInt()}\n")
-            }
-        })
+    private fun startStreaming(surface: android.view.Surface) {
+        stopStreaming()
+        isStreaming = true
 
-        imageView.setOnTouchListener { v, event ->
-            scaleGestureDetector.onTouchEvent(event)
-            gestureDetector.onTouchEvent(event)
+        socketThread = Thread({
+            while (isStreaming && !Thread.currentThread().isInterrupted) {
+                var socket: Socket? = null
+                try {
+                    socket = Socket()
+                    socket.tcpNoDelay = true
+                    socket.connect(InetSocketAddress(SERVER_HOST, SERVER_PORT), 3000)
 
-            val viewWidth = v.width.toFloat()
-            val viewHeight = v.height.toFloat()
-
-            if (scaleFactor == 1.0f) {
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        isLongPressed = false
+                    val activeDecoder = JpgStreamDecoder(surface)
+                    decoder = activeDecoder
+                    activeDecoder.start(socket.getInputStream())
+                    activeDecoder.join()
+                } catch (_: InterruptedException) {
+                    break
+                } catch (_: Exception) {
+                    try {
+                        Thread.sleep(1500)
+                    } catch (_: InterruptedException) {
+                        break
                     }
-                    MotionEvent.ACTION_MOVE -> {
-                        val realX = (event.x / viewWidth) * pcScreenWidth
-                        val realY = (event.y / viewHeight) * pcScreenHeight
-                        sendDataAsync("MOVE:${realX.toInt()}:${realY.toInt()}\n")
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        if (!isLongPressed) {
-                            val realX = (event.x / viewWidth) * pcScreenWidth
-                            val realY = (event.y / viewHeight) * pcScreenHeight
-                            sendDataAsync("CLICK:${realX.toInt()}:${realY.toInt()}\n")
-                        }
+                } finally {
+                    try {
+                        socket?.close()
+                    } catch (_: Exception) {
                     }
                 }
             }
-            true
+        }, "SocketConnectThread").apply {
+            isDaemon = true
+            start()
         }
     }
 
-    private fun setupKeyboardListener() {
-        hiddenEditText.addTextChangedListener(object : TextWatcher {
-            override fun afterTextChanged(s: Editable?) {
-                if (!s.isNullOrEmpty()) {
-                    sendDataAsync("KEY:$s\n")
-                    s.clear()
-                }
-            }
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-        })
+    private fun stopStreaming() {
+        isStreaming = false
+        socketThread?.interrupt()
+        socketThread = null
+        decoder?.stop()
+        decoder = null
+    }
 
-        hiddenEditText.setOnKeyListener { _, keyCode, event ->
-            if (event.action == KeyEvent.ACTION_DOWN) {
-                when (keyCode) {
-                    KeyEvent.KEYCODE_DEL -> {
-                        sendDataAsync("SPECIAL:backspace\n")
-                        true
-                    }
-                    KeyEvent.KEYCODE_ENTER -> {
-                        sendDataAsync("SPECIAL:enter\n")
-                        true
-                    }
-                    else -> false
-                }
-            } else {
-                false
-            }
-        }
+    override fun onDestroy() {
+        stopStreaming()
+        super.onDestroy()
     }
 }
