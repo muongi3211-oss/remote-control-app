@@ -1,36 +1,38 @@
 package com.example.remotecontrol
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Bundle
-import android.view.Surface
-import android.view.SurfaceHolder
-import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
+import android.widget.EditText
+import android.widget.ImageView
 import androidx.appcompat.app.AppCompatActivity
+import com.example.remotecontrol.R
+import java.io.InputStream
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.nio.ByteBuffer
 
 class MainActivity : AppCompatActivity() {
     companion object {
-        // Đổi thành IPv4 hiện tại của PC trên mạng Wi-Fi / Hotspot
+        // IPv4 hiện tại của PC trên mạng Hotspot / Wi-Fi
         private const val SERVER_HOST = "10.186.244.30"
         private const val SERVER_PORT = 5555
         private const val CONNECT_TIMEOUT_MS = 3000
         private const val READ_TIMEOUT_MS = 5000
         private const val RETRY_DELAY_MS = 1500L
+        private const val MAX_FRAME_BYTES = 10 * 1024 * 1024
     }
 
-    @Volatile
-    private var decoder: JpgStreamDecoder? = null
+    private lateinit var screenImageView: ImageView
+    private lateinit var hiddenEditText: EditText
 
     @Volatile
-    private var socketThread: Thread? = null
+    private var streamThread: Thread? = null
 
     @Volatile
     private var currentSocket: Socket? = null
-
-    @Volatile
-    private var activeSurface: Surface? = null
 
     @Volatile
     private var isStreaming = false
@@ -43,27 +45,8 @@ class MainActivity : AppCompatActivity() {
         supportActionBar?.hide()
         hideSystemBars()
 
-        val surfaceView = findViewById<SurfaceView>(R.id.surfaceView)
-        surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
-            override fun surfaceCreated(holder: SurfaceHolder) {
-                activeSurface = holder.surface
-                startStreaming(holder.surface)
-            }
-
-            override fun surfaceChanged(
-                holder: SurfaceHolder,
-                format: Int,
-                width: Int,
-                height: Int
-            ) {
-                activeSurface = holder.surface
-            }
-
-            override fun surfaceDestroyed(holder: SurfaceHolder) {
-                stopStreaming()
-                activeSurface = null
-            }
-        })
+        screenImageView = findViewById(R.id.screenImageView)
+        hiddenEditText = findViewById(R.id.hiddenEditText)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -76,10 +59,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         hideSystemBars()
-        val surface = activeSurface
-        if (!isStreaming && surface != null && surface.isValid) {
-            startStreaming(surface)
-        }
+        startStreaming()
     }
 
     override fun onPause() {
@@ -104,17 +84,14 @@ class MainActivity : AppCompatActivity() {
             )
     }
 
-    private fun startStreaming(surface: Surface) {
+    private fun startStreaming() {
         stopStreaming()
         isStreaming = true
 
         val thread = Thread({
-            while (isStreaming && !Thread.currentThread().isInterrupted) {
-                if (!surface.isValid) {
-                    sleepQuietly(300L)
-                    continue
-                }
+            val lengthHeader = ByteArray(4)
 
+            while (isStreaming && !Thread.currentThread().isInterrupted) {
                 var socket: Socket? = null
                 try {
                     socket = Socket()
@@ -123,21 +100,32 @@ class MainActivity : AppCompatActivity() {
                     currentSocket = socket
 
                     socket.connect(InetSocketAddress(SERVER_HOST, SERVER_PORT), CONNECT_TIMEOUT_MS)
-                    if (!isStreaming || Thread.currentThread().isInterrupted) {
-                        break
-                    }
+                    val inputStream = socket.getInputStream()
 
-                    val streamDecoder = JpgStreamDecoder(surface)
-                    decoder = streamDecoder
-                    streamDecoder.start(socket.getInputStream())
-                    streamDecoder.join()
+                    while (isStreaming && !Thread.currentThread().isInterrupted) {
+                        if (!readFully(inputStream, lengthHeader, 4)) break
+                        val frameLength = ByteBuffer.wrap(lengthHeader).int
+                        if (frameLength <= 0 || frameLength > MAX_FRAME_BYTES) continue
+
+                        val jpegBytes = ByteArray(frameLength)
+                        if (!readFully(inputStream, jpegBytes, frameLength)) break
+
+                        val bitmap: Bitmap? = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+                        if (bitmap != null) {
+                            runOnUiThread {
+                                if (isStreaming && !isFinishing && !isDestroyed) {
+                                    screenImageView.setImageBitmap(bitmap)
+                                } else {
+                                    bitmap.recycle()
+                                }
+                            }
+                        }
+                    }
                 } catch (_: InterruptedException) {
                     break
                 } catch (_: Exception) {
                     sleepQuietly(RETRY_DELAY_MS)
                 } finally {
-                    decoder?.stop()
-                    decoder = null
                     try {
                         socket?.close()
                     } catch (_: Exception) {
@@ -147,19 +135,29 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-        }, "WifiStreamConnectThread").apply {
+        }, "WifiScreenStreamThread").apply {
             isDaemon = true
             start()
         }
 
-        socketThread = thread
+        streamThread = thread
+    }
+
+    private fun readFully(stream: InputStream, buffer: ByteArray, length: Int): Boolean {
+        var totalRead = 0
+        while (totalRead < length && isStreaming && !Thread.currentThread().isInterrupted) {
+            val read = stream.read(buffer, totalRead, length - totalRead)
+            if (read == -1) return false
+            totalRead += read
+        }
+        return totalRead == length
     }
 
     private fun stopStreaming() {
         isStreaming = false
 
-        val thread = socketThread
-        socketThread = null
+        val thread = streamThread
+        streamThread = null
         thread?.interrupt()
 
         try {
@@ -167,9 +165,6 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {
         }
         currentSocket = null
-
-        decoder?.stop()
-        decoder = null
     }
 
     private fun sleepQuietly(millis: Long) {
