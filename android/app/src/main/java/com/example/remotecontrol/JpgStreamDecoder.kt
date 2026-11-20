@@ -1,4 +1,4 @@
-package com.example.usbremote
+package com.example.remotecontrol
 
 import android.graphics.BitmapFactory
 import android.graphics.Color
