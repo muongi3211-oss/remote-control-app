@@ -10,7 +10,7 @@ import java.net.Socket
 
 class MainActivity : AppCompatActivity() {
     companion object {
-        private const val SERVER_HOST = "10.186.244.30" // Ví dụ: "127.0.0.1" hoặc "192.168.1.50"
+        private const val SERVER_HOST = "10.186.244.30"
         private const val SERVER_PORT = 5555
     }
 
